@@ -14,11 +14,13 @@ env/
 # Upstream extraction checkout and raw generated corpus.
 extract-dialogue/
 
-# Full role dataset is kept local; publish only qixia_sample.
-role_data/qixia/
+# Legacy local role-data scratch directories.
+role_data/
 
 # Cloud/runtime outputs.
 logs/
+outputs/
+notebooks/.ipynb_checkpoints/
 model_output*/
 adapter*/
 checkpoint*/

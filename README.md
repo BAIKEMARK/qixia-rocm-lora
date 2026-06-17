@@ -1,84 +1,73 @@
 # Qixia ROCm LoRA
 
-ROCm 单卡 LoRA 微调脚手架，用于把《十日终焉》齐夏角色语料整理成 WeClone / LLaMA Factory 可读的 ShareGPT 数据，并在 AMD GPU 云平台上跑训练。
+ROCm 单卡 LoRA 微调仓库，用 LLaMA Factory / PEFT 直接训练齐夏角色 LoRA。
 
-## What Is Included
+这个仓库不需要额外的大模型 API key。数据是已经提取好的 ShareGPT 训练数据，直接放在仓库的 `data/` 目录里。
 
-- `rocm_amd_gpu_smoke_test.ipynb`: AMD ROCm 环境自检，先确认 GPU、HIP、PyTorch 都可用。
-- `weclone_rocm_single_gpu_lora.ipynb`: 单卡 LoRA 训练 notebook，默认先跑样例数据，确认后再换完整语料。
-- `scripts/prepare_weclone_dataset.py`: 把 `extract-dialogue` 生成的 ShareGPT JSON 转成 WeClone 需要的 `sft-my.json` / `dataset_info.json`。
-- `scripts/build_role_dataset_from_novel.py`: 备用的本地正则抽取脚本，不作为主训练数据来源。
-- `role_data/qixia_sample/`: 6 条可公开的原创格式样例，只用于验证格式和冒烟测试。
+## Contents
 
-## What Is Not Committed
+- `data/qixia_train.json`: 完整训练集，6577 条 ShareGPT 样本。
+- `data/qixia_valid.json`: 验证集，346 条 ShareGPT 样本。
+- `data/dataset_info.json`: LLaMA Factory 数据集配置。
+- `configs/qwen2_5_7b_lora.yaml`: 默认 LoRA 训练配置。
+- `notebooks/qixia_rocm_lora_train.ipynb`: ROCm 云平台训练 notebook。
+- `rocm_amd_gpu_smoke_test.ipynb`: ROCm / PyTorch 环境自检 notebook。
+- `scripts/validate_dataset.py`: 训练数据格式校验。
+- `scripts/train_lora.py`: LLaMA Factory 训练入口。
+- `scripts/quick_infer.py`: base model + LoRA 快速推理测试。
+- `scripts/merge_lora.py`: 合并 LoRA 到 base model。
 
-完整小说、完整对白语料、`.env`、API key、训练输出和 LoRA checkpoint 都不会提交到公开仓库。完整数据在本地生成后放在 `role_data/qixia/`，该目录已被 `.gitignore` 忽略。
+## Data
 
-## Prepare Data Locally
+当前数据是从已清洗对白构造的 ShareGPT 格式：
 
-如果你已经有 `extract-dialogue/outputs/sft/qixia_sharegpt_train.json`，运行：
-
-```bash
-python3 scripts/prepare_weclone_dataset.py \
-  --source extract-dialogue/outputs/sft/qixia_sharegpt_train.json \
-  --out-dir role_data/qixia \
-  --dataset-name chat-sft
+```json
+{
+  "system": "你正在扮演《十日终焉》中的齐夏...",
+  "conversations": [
+    {"from": "human", "value": "上下文或用户问题"},
+    {"from": "gpt", "value": "齐夏式回答"}
+  ]
+}
 ```
 
-生成结果：
-
-```text
-role_data/qixia/sft-my.json
-role_data/qixia/dataset_info.json
-role_data/qixia/stats.json
-```
-
-如果只想生成本地抽样样例，可用同一脚本：
-
-```bash
-python3 scripts/prepare_weclone_dataset.py \
-  --source extract-dialogue/outputs/sft/qixia_sharegpt_train.json \
-  --out-dir role_data/qixia_sample \
-  --dataset-name chat-sft \
-  --limit 20
-```
-
-注意：如果样例来自原书文本，只用于本地检查格式，不要提交到公开仓库。当前仓库里的 `role_data/qixia_sample/` 是原创格式样例，不含原文摘录。
+先用这批数据做一次 LoRA 微调。后续如果要做更强的“用户随便问”能力，可以再补一版真正聊天化数据，但这一步不需要在训练仓库里调用外部大模型 API。
 
 ## Run On ROCm Cloud
 
-1. 先打开 `rocm_amd_gpu_smoke_test.ipynb`，确认 `torch.version.hip` 有值，`torch.cuda.is_available()` 为 `True`。
-2. 上传或挂载完整 `role_data/qixia/` 到 notebook 所在仓库目录。
-3. 打开 `weclone_rocm_single_gpu_lora.ipynb`，从上到下运行到训练前检查。
-4. 确认模型、数据、显存都正常后，把参数区的 `RUN_TRAIN = True` 再运行训练单元。
+1. 打开 `rocm_amd_gpu_smoke_test.ipynb`，确认 `torch.version.hip` 有值，`torch.cuda.is_available()` 为 `True`。
+2. 打开 `notebooks/qixia_rocm_lora_train.ipynb`，从上到下运行到训练前检查。
+3. 确认数据、显存、依赖和配置都正常。
+4. 把参数区的 `RUN_TRAIN = True`，运行训练单元。
 
-默认存储策略：
+默认输出：
 
-- 持久化目录：`/network-workspace/weclone-rocm`
-- 临时模型缓存：`/workspace/model-cache/weclone-rocm`
-- LoRA 输出：`/network-workspace/weclone-rocm/model_output_rocm_lora_qwen25_7b`
-
-## Validate
-
-本地脚本测试：
-
-```bash
-python3 -m unittest tests/test_prepare_weclone_dataset.py
+```text
+/network-workspace/qixia-rocm-lora/outputs/qwen2_5_7b_lora
 ```
 
-数据格式快速检查：
+基础模型默认是 `Qwen/Qwen2.5-7B-Instruct`。48GB AMD 显存建议先用这个 7B 配置跑通，再考虑更大的模型或更长上下文。
+
+## Local Validation
 
 ```bash
-python3 - <<'PY'
-import json
-from pathlib import Path
-data = json.loads(Path("role_data/qixia_sample/sft-my.json").read_text(encoding="utf-8"))
-assert data and data[0]["messages"][0]["role"] == "user"
-assert data[0]["messages"][-1]["role"] == "assistant"
-print("sample examples:", len(data))
-PY
+python3 -m unittest discover -s tests
+python3 scripts/validate_dataset.py data/qixia_train.json data/qixia_valid.json
 ```
 
-## Notes
+预期数据规模：
 
-第一轮建议只跑普通 LoRA，不先做 4bit QLoRA。48GB AMD 显存可以从 Qwen2.5-7B-Instruct、`cutoff_len=1024`、`batch_size=1`、`gradient_accumulation_steps=16` 开始，跑通后再调大上下文或训练轮数。
+```text
+train: 6577
+valid: 346
+```
+
+## Training Command
+
+Notebook 内部最终执行的是：
+
+```bash
+python scripts/train_lora.py --config configs/qwen2_5_7b_lora.yaml
+```
+
+也可以直接在 ROCm 环境命令行运行。
