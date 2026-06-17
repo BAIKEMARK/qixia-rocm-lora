@@ -9,7 +9,7 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--model", default="Qwen/Qwen3.5-9B")
     parser.add_argument("--adapter", required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()

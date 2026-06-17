@@ -8,7 +8,7 @@ import argparse
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="Qwen/Qwen2.5-7B-Instruct")
+    parser.add_argument("--model", default="Qwen/Qwen3.5-9B")
     parser.add_argument("--adapter", required=True)
     parser.add_argument("--prompt", default="如果一个规则看起来互相矛盾，你会怎么判断？")
     parser.add_argument("--max-new-tokens", type=int, default=160)

@@ -11,7 +11,7 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path("configs/qwen2_5_7b_lora.yaml"))
+    parser.add_argument("--config", type=Path, default=Path("configs/qwen3_5_9b_lora.yaml"))
     parser.add_argument("--repo-dir", type=Path, default=Path.cwd())
     args = parser.parse_args()
 
