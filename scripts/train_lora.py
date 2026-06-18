@@ -18,7 +18,7 @@ def main() -> None:
     env = os.environ.copy()
     env.setdefault("HIP_VISIBLE_DEVICES", "0")
     env.setdefault("CUDA_VISIBLE_DEVICES", "0")
-    env.setdefault("PYTORCH_HIP_ALLOC_CONF", "expandable_segments:True")
+    env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
     env.setdefault("TOKENIZERS_PARALLELISM", "false")
 
     cmd = ["llamafactory-cli", "train", str(args.config)]
