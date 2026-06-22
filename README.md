@@ -70,8 +70,8 @@ python scripts/patch_llamafactory_qwen35_text.py
 
 ```text
 cutoff_len: 2048
-per_device_train_batch_size: 1
-gradient_accumulation_steps: 16
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 8
 effective_batch_size: 16
 lora_rank: 8
 lora_alpha: 16
@@ -79,9 +79,10 @@ learning_rate: 1e-4
 num_train_epochs: 1
 bf16: true
 gradient_checkpointing: true
+disable_tqdm: false
 ```
 
-如果 48GB 显存只用到一半，优先尝试把 `per_device_train_batch_size` 从 `1` 调到 `2`，并把 `gradient_accumulation_steps` 从 `16` 调到 `8`，这样有效 batch 仍是 16，但吞吐通常更好。再激进一点可以保持 batch size 2、accumulation 16，把有效 batch 提到 32，但学习率和收敛要重新观察。
+这个设置比 batch size 1 更能利用 48GB 显存。训练进度条通过 `disable_tqdm: false` 开启，Notebook 的命令执行也使用实时输出。
 
 ## Local Validation
 

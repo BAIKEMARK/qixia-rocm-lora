@@ -20,6 +20,7 @@ def main() -> None:
     env.setdefault("CUDA_VISIBLE_DEVICES", "0")
     env.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
     env.setdefault("TOKENIZERS_PARALLELISM", "false")
+    env.setdefault("PYTHONUNBUFFERED", "1")
 
     cmd = ["llamafactory-cli", "train", str(args.config)]
     print("$", " ".join(cmd))
