@@ -113,6 +113,25 @@ python scripts/train_lora.py --config /network-workspace/runtime_configs/qwen3_5
 
 不要在 Hugging Face 不通的云端直接训练 `configs/*.yaml`，因为里面保留的是模型仓库 ID。Notebook 生成的运行时配置会把 `model_name_or_path` 改成本地模型目录。
 
+## Download And Test LoRA
+
+训练完成后，Notebook 的 `打包 LoRA 到可下载目录` 块会自动选择最新 checkpoint，并生成：
+
+```text
+/workspace/repo/downloads/qwen3_5_9b_lora_checkpoint-xxx_infer.tar.gz
+```
+
+这个文件可以从 JupyterLab 左侧文件浏览器下载到本地。它只包含推理需要的 LoRA adapter 和 tokenizer 文件，不包含 optimizer/scheduler。
+
+Notebook 的 `交互式测试 LoRA` 块会加载 base model + 最新 LoRA，并提供：
+
+```python
+qixia_reply("如果一个规则看起来互相矛盾，你会怎么判断？")
+chat_loop()
+```
+
+`chat_loop()` 可以在 Notebook 里连续输入问题，输入 `exit`、`quit` 或 `退出` 结束。
+
 Radeon Cloud 模板里的 Notebook Path 填相对路径：
 
 ```text
