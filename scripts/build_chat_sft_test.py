@@ -19,11 +19,12 @@ except ImportError:
     print("请先安装：pip install openai", file=sys.stderr)
     sys.exit(1)
 
-REPO_DIR = Path(__file__).resolve().parents[1]
+REPO_DIR = Path(__file__).resolve().parents[1]  # lora-trainer/
+PROJECT_ROOT = REPO_DIR.parent  # taletalk/
 DATA_PATH = REPO_DIR / "data" / "qixia_train.json"
 OUTPUT_PATH = REPO_DIR / "data" / "qixia_chat_test_100.json"
 CHECKPOINT_PATH = REPO_DIR / "data" / "_chat_conversion_test_progress.json"
-ENV_PATH = REPO_DIR / "extract-dialogue" / ".env.stepfun"
+ENV_PATH = PROJECT_ROOT / "extract-dialogue" / ".env.stepfun"
 
 SAMPLE_COUNT = int(os.environ.get("SAMPLE_COUNT", "100"))
 
