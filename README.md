@@ -4,6 +4,12 @@
 
 输入一本小说 `.txt` + 一个角色名，输出一个能扮演这个角色和你多轮聊天的 LoRA + Gradio 对话界面。
 
+## 快速试跑
+
+仓库自带一份 demo 小说 `novels/西游记白话文.txt`（吴承恩原著，公版；白话改写来自 [KMnO4-zx/huanhuan-chat](https://github.com/KMnO4-zx/huanhuan-chat)）。默认配置就是用它训练「孙悟空」角色——`git clone` 完直接按顺序跑 `01_extract.ipynb` → `02_train.ipynb` → `03_infer.ipynb` 就能完整走一遍。
+
+想换成自己的小说：把 txt 拖到 `novels/` 目录，改 01_extract 顶部的 `NOVEL_TXT` / `TARGET_ROLE` / `NOVEL_TITLE` / `RUN_NAME` 即可。
+
 ## 流程
 
 整个流水线就 3 个 notebook，按编号跑：
