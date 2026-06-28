@@ -56,3 +56,4 @@ output_dir = "/network-workspace/outputs"  # LoRA输出目录
 gradio_port = 7860  # Gradio服务端口
 share = false  # 是否生成公网共享链接
 stream_output = true  # 是否开启流式输出
+adapter_dir = ""  # 可选：外部LoRA目录；上传推理包时填解压后的目录，如 /network-workspace/outputs/qwen3_5_9b_lora_checkpoint-412_infer
