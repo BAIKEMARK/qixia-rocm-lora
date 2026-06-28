@@ -63,6 +63,7 @@ class Config:
     gradio_port: int
     share: bool
     stream_output: bool
+    adapter_dir: Optional[Path]
     
     # 路径
     repo_dir: Path
@@ -103,6 +104,11 @@ def load_config(config_path: str = "config.toml") -> Config:
     cache_dir = repo_dir / "cache"
     logs_dir = repo_dir / "logs"
     status_dir = repo_dir / "status"
+    adapter_dir_raw = cfg.get("adapter_dir", "").strip()
+    adapter_dir = Path(adapter_dir_raw) if adapter_dir_raw else None
+    if adapter_dir and not adapter_dir.is_absolute():
+        adapter_dir = (repo_dir / adapter_dir).resolve()
+
     for d in [raw_dir, sft_dir, cache_dir, logs_dir, status_dir, Path(cfg["model_cache_dir"]), Path(cfg["output_dir"])]:
         d.mkdir(parents=True, exist_ok=True)
     
@@ -165,6 +171,7 @@ def load_config(config_path: str = "config.toml") -> Config:
         gradio_port=cfg["gradio_port"],
         share=cfg["share"],
         stream_output=cfg["stream_output"],
+        adapter_dir=adapter_dir,
         
         # 路径
         repo_dir=repo_dir,

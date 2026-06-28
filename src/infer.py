@@ -16,7 +16,8 @@ def run_infer(config: Config) -> None:
     
     logger.info("===== 启动推理服务 =====")
     logger.info(f"模型: {config.model_id}")
-    logger.info(f"LoRA路径: {config.output_dir}/{config.run_name}")
+    lora_path = config.adapter_dir or config.output_dir / config.run_name
+    logger.info(f"LoRA路径: {lora_path}")
     
     # 加载模型
     logger.info("加载模型和LoRA权重...")
@@ -30,7 +31,6 @@ def run_infer(config: Config) -> None:
         trust_remote_code=True,
     )
     
-    lora_path = config.output_dir / config.run_name
     model = PeftModel.from_pretrained(base_model, lora_path)
     model.eval()
     logger.info("模型加载完成")
