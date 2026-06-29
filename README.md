@@ -17,6 +17,11 @@ cp config.example.toml config.toml
 python main.py
 ```
 
+## 记忆 / RAFT 流程
+当前分支支持 memory-first / RAFT 数据流程：先从原始对话构建角色记忆库，再生成带 `【记忆片段】` 的 RAFT/mixed SFT 数据。
+
+中文使用说明见：[docs/usage-memory-raft-zh.md](docs/usage-memory-raft-zh.md)
+
 ## 和Notebook版本对应关系
 所有参数和之前Notebook里的完全一致，直接把之前Notebook里改的参数抄到config.toml里就行：
 | Notebook参数 | config.toml参数 | 说明 |
