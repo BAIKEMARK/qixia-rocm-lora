@@ -4,7 +4,8 @@ from .config import Config
 from .memory import build_default_profile, write_profile, write_scene_memories
 from .one_pass_generation import run_one_pass_generation, write_jsonl
 from .preprocess import build_scene_skeletons, write_scene_build_report, write_scene_skeletons
-from .retrieval import BM25MemoryIndex, write_hashed_embedding_artifacts
+from .retrieval import BM25MemoryIndex
+from .semantic_retrieval import write_embedding_artifacts
 from .utils import check_step_done, init_logger, mark_step_done
 
 
@@ -57,8 +58,8 @@ def run_build_memory(config: Config) -> None:
     index = BM25MemoryIndex.from_scenes(scenes)
     index.save(config.memory_index_json)
     logger.info("BM25 记忆索引写入完成")
-    write_hashed_embedding_artifacts(scenes, config.embedding_npy, config.embedding_meta_jsonl)
-    logger.info("embedding 记忆索引占位产物写入完成")
+    embedding_provider = write_embedding_artifacts(config, scenes)
+    logger.info(f"embedding 记忆索引写入完成: {embedding_provider}")
 
     mark_step_done(step_name, config.status_dir)
     logger.info("===== 角色记忆构建完成 =====")

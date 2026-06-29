@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import random
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .memory import SceneMemory
 from .retrieval import BM25MemoryIndex
@@ -29,6 +29,12 @@ def build_memory_packs(
     *,
     max_one_scene_chars: int,
     include_distractors: bool,
+    retrieval_mode: str = "bm25",
+    bm25_top_k: int = 20,
+    embedding_top_k: int = 20,
+    rerank_top_k: int = 5,
+    semantic_index: Any | None = None,
+    rerank_fn: Callable[[str, list[dict[str, Any]], int], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     by_id = {scene.scene_id: scene for scene in scenes}
     packs: list[dict[str, Any]] = []
@@ -41,15 +47,27 @@ def build_memory_packs(
         for ref in refs[:2]:
             items.append(_pack_item(by_id[ref], "gold_evidence", max_one_scene_chars))
 
-        if refs:
-            for result in index.search(question, top_k=5, exclude_narrator_only=True):
-                if result.scene.scene_id not in refs:
-                    items.append(_pack_item(result.scene, "supporting_context", max_one_scene_chars))
-                    break
+        retrieval_items = _retrieve_supporting_items(
+            question,
+            refs,
+            index,
+            max_one_scene_chars=max_one_scene_chars,
+            retrieval_mode=retrieval_mode,
+            bm25_top_k=bm25_top_k,
+            embedding_top_k=embedding_top_k,
+            rerank_top_k=rerank_top_k,
+            semantic_index=semantic_index,
+            rerank_fn=rerank_fn,
+        )
+        if retrieval_items:
+            items.append({**retrieval_items[0], "hidden_role": "supporting_context"})
         if include_distractors and refs:
-            candidates_for_distractor = [scene for scene in scenes if scene.scene_id not in refs and scene.target_role_knows]
-            if candidates_for_distractor:
-                items.append(_pack_item(rng.choice(candidates_for_distractor), "hard_distractor", max_one_scene_chars))
+            if len(retrieval_items) > 1:
+                items.append({**retrieval_items[1], "hidden_role": "hard_distractor"})
+            else:
+                candidates_for_distractor = [scene for scene in scenes if scene.scene_id not in refs and scene.target_role_knows]
+                if candidates_for_distractor:
+                    items.append(_pack_item(rng.choice(candidates_for_distractor), "hard_distractor", max_one_scene_chars))
 
         packs.append(
             {
@@ -82,6 +100,48 @@ def read_memory_packs(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def retrieve_memory_items(
+    question: str,
+    index: BM25MemoryIndex,
+    *,
+    excluded_scene_ids: list[str] | None = None,
+    max_one_scene_chars: int,
+    retrieval_mode: str,
+    bm25_top_k: int,
+    embedding_top_k: int,
+    rerank_top_k: int,
+    semantic_index: Any | None,
+    rerank_fn: Callable[[str, list[dict[str, Any]], int], list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    excluded = set(excluded_scene_ids or [])
+    scores: dict[str, float] = {}
+    scenes_by_id: dict[str, SceneMemory] = {}
+    mode = retrieval_mode.lower()
+
+    if mode in {"bm25", "hybrid"}:
+        for result in index.search(question, top_k=bm25_top_k, exclude_narrator_only=True):
+            if result.scene.scene_id in excluded:
+                continue
+            scenes_by_id[result.scene.scene_id] = result.scene
+            scores[result.scene.scene_id] = scores.get(result.scene.scene_id, 0.0) + float(result.score)
+
+    if semantic_index is not None and mode in {"embedding", "semantic", "hybrid"}:
+        for result in semantic_index.search(question, top_k=embedding_top_k, exclude_narrator_only=True):
+            if result.scene.scene_id in excluded:
+                continue
+            scenes_by_id[result.scene.scene_id] = result.scene
+            scores[result.scene.scene_id] = scores.get(result.scene.scene_id, 0.0) + float(result.score)
+
+    ranked_scene_ids = sorted(scores, key=scores.get, reverse=True)
+    items = [
+        _pack_item(scenes_by_id[scene_id], "supporting_context", max_one_scene_chars)
+        for scene_id in ranked_scene_ids
+    ]
+    if rerank_fn is not None and items:
+        return rerank_fn(question, items, max(1, rerank_top_k))
+    return items[: max(1, rerank_top_k)]
+
+
 def render_memory_pack(items: list[dict[str, Any]], max_chars: int = 1800) -> str:
     if not items:
         return "【记忆片段 1｜记忆不足】\n没有可靠记忆片段能直接回答这个问题。"
@@ -106,6 +166,35 @@ def _pack_item(scene: SceneMemory, hidden_role: str, max_chars: int) -> dict[str
         "knowledge_level": scene.knowledge_level,
         "text": scene_memory_text(scene, max_chars=max_chars),
     }
+
+
+def _retrieve_supporting_items(
+    question: str,
+    refs: list[str],
+    index: BM25MemoryIndex,
+    *,
+    max_one_scene_chars: int,
+    retrieval_mode: str,
+    bm25_top_k: int,
+    embedding_top_k: int,
+    rerank_top_k: int,
+    semantic_index: Any | None,
+    rerank_fn: Callable[[str, list[dict[str, Any]], int], list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    if not refs:
+        return []
+    return retrieve_memory_items(
+        question,
+        index,
+        excluded_scene_ids=refs,
+        max_one_scene_chars=max_one_scene_chars,
+        retrieval_mode=retrieval_mode,
+        bm25_top_k=bm25_top_k,
+        embedding_top_k=embedding_top_k,
+        rerank_top_k=rerank_top_k,
+        semantic_index=semantic_index,
+        rerank_fn=rerank_fn,
+    )
 
 
 def _knowledge_label(level: str) -> str:

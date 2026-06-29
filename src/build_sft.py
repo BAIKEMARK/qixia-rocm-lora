@@ -12,6 +12,7 @@ from .memory import read_dialogue_jsonl, read_profile, read_scene_memories
 from .memory_pack import build_memory_packs, write_memory_packs
 from .prompting import build_roleplay_system_prompt_from_memory_pack
 from .retrieval import BM25MemoryIndex
+from .semantic_retrieval import SemanticMemoryIndex, rerank_items
 from .utils import init_logger, check_step_done, mark_step_done, run_with_progress
 
 def _load_jsonl(path: Path) -> List[dict]:
@@ -263,12 +264,21 @@ def _build_phase_one_sft(config: Config) -> list[dict]:
     scenes = read_scene_memories(config.scene_memory_jsonl)
     candidates = _filter_candidates(_load_jsonl(config.raft_candidates_raw_jsonl))
     index = BM25MemoryIndex.from_scenes(scenes)
+    semantic_index = None
+    if config.retrieval_mode in {"embedding", "semantic", "hybrid"} and config.embedding_npy.exists():
+        semantic_index = SemanticMemoryIndex.from_artifacts(scenes, config.embedding_npy, config)
     packs = build_memory_packs(
         candidates,
         scenes,
         index,
         max_one_scene_chars=config.max_one_scene_chars,
         include_distractors=config.raft_include_distractors,
+        retrieval_mode=config.retrieval_mode,
+        bm25_top_k=config.bm25_top_k,
+        embedding_top_k=config.embedding_top_k,
+        rerank_top_k=config.rerank_top_k,
+        semantic_index=semantic_index,
+        rerank_fn=lambda query, items, top_k: rerank_items(config, query, items, top_k),
     )
     write_memory_packs(packs, config.raft_memory_packs_jsonl)
     packs_by_question = {pack["question_id"]: pack for pack in packs}

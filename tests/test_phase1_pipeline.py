@@ -1,8 +1,11 @@
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from src.config import load_config
 from src.memory_pack import render_memory_pack
 from src.preprocess import build_scene_skeletons
+from src.semantic_retrieval import embed_texts, rerank_items
 
 
 def test_preprocess_scenes_keep_offsets(tmp_path):
@@ -68,6 +71,44 @@ def test_phase1_cli_steps_smoke(tmp_path, monkeypatch):
     train_rows = json.loads(cfg.train_json.read_text(encoding="utf-8"))
     assert train_rows
     assert "【记忆片段" in train_rows[0]["system"]
+
+
+def test_cloud_embedding_and_reranker_clients(tmp_path, monkeypatch):
+    _write_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config("config.toml")
+
+    server, thread = _start_fake_retrieval_server()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_port}"
+        cfg.embedding_backend = "cloud"
+        cfg.embedding_base_url = base_url
+        cfg.embedding_api_key = "test-key"
+        cfg.embedding_model = "fake-embedding"
+        cfg.reranker_backend = "cloud"
+        cfg.reranker_base_url = base_url
+        cfg.reranker_api_key = "test-key"
+        cfg.reranker_model = "fake-reranker"
+        cfg.use_reranker = True
+
+        vectors = embed_texts(cfg, ["余念安", "规则"])
+        ranked = rerank_items(
+            cfg,
+            "规则",
+            [
+                {"scene_id": "a", "text": "余念安"},
+                {"scene_id": "b", "text": "规则"},
+            ],
+            top_k=2,
+        )
+
+        assert vectors == [[1.0, 0.0], [0.0, 1.0]]
+        assert [item["scene_id"] for item in ranked] == ["b", "a"]
+        assert "/embeddings" in server.paths
+        assert "/rerank" in server.paths
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
 
 
 def _write_project(root):
@@ -154,3 +195,39 @@ adapter_dir = ""
 ''',
         encoding="utf-8",
     )
+
+
+def _start_fake_retrieval_server():
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.server.paths.append(self.path)
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if self.path == "/embeddings":
+                vectors = []
+                for text in payload["input"]:
+                    vectors.append([1.0, 0.0] if "余念安" in text else [0.0, 1.0])
+                body = {"data": [{"embedding": vector} for vector in vectors]}
+            elif self.path == "/rerank":
+                rows = []
+                query = payload["query"]
+                for index, document in enumerate(payload["documents"]):
+                    rows.append({"index": index, "relevance_score": 10.0 if query in document else 1.0})
+                body = {"results": rows}
+            else:
+                body = {"error": "not found"}
+            data = json.dumps(body).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format, *args):
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server.paths = []
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread
