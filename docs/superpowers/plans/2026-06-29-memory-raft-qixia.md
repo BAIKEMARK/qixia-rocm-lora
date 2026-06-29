@@ -41,6 +41,8 @@
 -> 审核器过滤后的数据集
 -> 后续在 ROCm 上训练 LoRA
 -> 运行时智能体使用同一套记忆协议
+-> 评测报告
+-> 角色包导出
 ```
 
 运行时智能体：
@@ -117,11 +119,15 @@
 - `src/raft_generation.py`：问题生成、记忆包构造、回答生成、样本落盘。
 - `src/raft_verifier.py`：LLM 审核与规则审核。
 - `src/runtime_agent.py`：运行时检索 + 提示词组装，不依赖 Gradio。
+- `src/evaluation.py`：固定评测集、检索评测、回答评测、报告汇总。
+- `src/export_role.py`：导出可迁移角色包，支持私有完整包和公开脱敏包。
 - `tests/test_scene_memory.py`
 - `tests/test_hybrid_retrieval.py`
 - `tests/test_raft_generation_schema.py`
 - `tests/test_raft_verifier.py`
 - `tests/test_runtime_agent_prompt.py`
+- `tests/test_evaluation_report.py`
+- `tests/test_export_role_package.py`
 
 保留但可重写内部语义：
 
@@ -140,6 +146,7 @@ data/memory/shiri_qixia_bm25.json
 data/memory/shiri_qixia_embeddings.npy
 data/memory/shiri_qixia_embedding_meta.jsonl
 data/memory/shiri_qixia_retrieval_eval.jsonl
+data/memory/shiri_qixia_scene_build_report.json
 data/raft/shiri_qixia_questions.jsonl
 data/raft/shiri_qixia_answers.raw.jsonl
 data/raft/shiri_qixia_verified.jsonl
@@ -147,6 +154,11 @@ data/shiri_qixia_chat_train.json
 data/shiri_qixia_chat_valid.json
 data/shiri_qixia_raft_train.json
 data/shiri_qixia_raft_valid.json
+data/eval/shiri_qixia_eval_questions.jsonl
+data/eval/shiri_qixia_eval_answers.jsonl
+reports/shiri_qixia_eval_report.json
+reports/shiri_qixia_eval_report.md
+dist/roles/shiri_qixia/manifest.json
 ```
 
 大文件和版权敏感数据默认不提交 Git。
@@ -186,6 +198,12 @@ multi_turn_ratio = 0.10
 false_premise_ratio = 0.05
 boundary_ratio = 0.05
 target_train_samples = 3000
+
+# 评测与导出
+eval_question_count = 120
+eval_report_dir = "reports"
+role_package_dir = "dist/roles"
+export_mode = "private_full"  # private_full / public_redacted
 ```
 
 ## 6. 任务 1：完整场景记忆构建
@@ -206,6 +224,8 @@ target_train_samples = 3000
 ```json
 {
   "scene_id": "scene_000032",
+  "chapter": "第十二章",
+  "scene_index": 32,
   "source_start": 123456,
   "source_end": 125100,
   "raw_text": "小说原文片段，包括旁白、动作、心理、台词",
@@ -218,27 +238,37 @@ target_train_samples = 3000
   "target_role_present": true,
   "target_role_knows": true,
   "knowledge_level": "first_hand",
+  "dialogue_alignment": "matched",
+  "alignment_score": 0.97,
   "events": [],
   "relations": [],
-  "quotes": ["我不可能死在这里的，我有不得不出去的理由。"]
+  "quotes": ["我不可能死在这里的，我有不得不出去的理由。"],
+  "source_refs": [
+    {"raw_dialogue_id": "chunk_000032_0004", "match_type": "exact"}
+  ]
 }
 ```
 
 **实现策略：**
 
-1. 先按原文长度切场景，使用重叠窗口保留上下文。
-2. 用原始对话的 `chunk_id/dialogue/role` 辅助对齐到场景。
-3. 对齐失败时保留原始场景，但标记 `dialogue_alignment = "missing"`。
-4. 初始 `target_role_knows` 规则：
+1. 原文归一化：统一换行、空白、章节标题，保留原始字符 offset，不删除正文。
+2. 章节识别：优先按章节标题切分；没有章节时按段落密度和长度切分。
+3. 场景切分：以段落为基本单位，控制 `scene_max_chars`，使用 `scene_overlap_chars` 保留上下文。
+4. 对话对齐：用原始对话 JSONL 的 `chunk_id/dialogue/role` 对齐到场景，先精确匹配，再做模糊匹配。
+5. 对齐记录：每条对齐结果写入 `source_refs`，失败时保留原始场景并标记 `dialogue_alignment = "missing"`。
+6. 初始角色可知性规则：
    - 齐夏在场景中出现或说话：`first_hand`
    - 场景由其他人对齐夏讲述：`heard_or_inferred`
    - 只有旁白或远处事件：`narrator_only`
+7. 构建报告：输出场景数量、平均长度、对齐成功率、齐夏出场场景数、`knowledge_level` 分布。
 
 **测试：**
 
 - 构造小小说文本，包含旁白 + 台词。
 - 构造原始对话。
 - 验证场景的 `raw_text` 包含旁白，`dialogues` 包含台词，`target_role_present` 正确。
+- 验证 `source_start/source_end` 能回到原文切片。
+- 验证对齐失败不会丢场景，且构建报告记录失败数量。
 
 ## 7. 任务 2：大模型场景增强
 
@@ -323,6 +353,22 @@ target_train_samples = 3000
 
 **目标：** 检索不是只靠 BM25，也不是只靠语义向量，而是精确召回 + 语义召回 + 重排。
 
+**索引构建：**
+
+```text
+输入：data/memory/shiri_qixia_scenes.jsonl
+输出：
+- data/memory/shiri_qixia_bm25.json
+- data/memory/shiri_qixia_embeddings.npy
+- data/memory/shiri_qixia_embedding_meta.jsonl
+```
+
+索引内容：
+
+- BM25 文档字段使用 `characters + aliases + quotes + summary + events + relations + raw_text`。
+- embedding 文档字段使用 `summary + events + relations + quotes + raw_text`，并保留 `scene_id`、`knowledge_level`、`source_start/source_end`。
+- 索引构建必须可重复执行；同一份 scenes 输入生成稳定的 meta 顺序。
+
 **召回层：**
 
 ```text
@@ -355,6 +401,8 @@ BM25 top 20：人名、别名、专有名词、原话、规则名
 
 **测试：**
 
+- 构造 3 条小场景，验证能生成 BM25、embedding、embedding_meta 三类产物。
+- 验证 embedding_meta 的顺序和 embeddings 行号一一对应。
 - 精确名字问题应由 BM25 召回。
 - 语义动机问题应由语义向量召回。
 - 只有旁白信息的场景默认被过滤。
@@ -527,7 +575,141 @@ data/shiri_qixia_raft_valid.json
 - 给定无关问题，提示词可出现“没有可靠记忆片段”。
 - 不加载模型也能测试提示词。
 
-## 16. 任务 11：齐夏数据生成冒烟验证
+## 16. 任务 11：评测集与评测报告
+
+**目标：** 不只生成数据，还要能判断角色是否变好。评测报告是训练前后的比较基线。
+
+**评测问题类型：**
+
+```text
+style_imitation：口吻和表达
+grounded_fact：小说事实
+relationship：人物关系
+motivation：动机和价值判断
+false_premise：错误前提纠正
+boundary_unknown：角色不知道的问题
+multi_turn_consistency：多轮一致性
+retrieval_quality：检索是否找对证据
+```
+
+**输出：**
+
+```text
+data/eval/shiri_qixia_eval_questions.jsonl
+data/eval/shiri_qixia_eval_answers.jsonl
+reports/shiri_qixia_eval_report.json
+reports/shiri_qixia_eval_report.md
+```
+
+**评测问题结构：**
+
+```json
+{
+  "id": "eval_000001",
+  "category": "relationship",
+  "question": "余念安对你来说意味着什么？",
+  "expected_scene_ids": ["scene_000088", "scene_000241"],
+  "expected_behavior": "应承认重要性，但不要编造记忆片段外的具体事件",
+  "must_not_claim": ["记忆中不存在的具体地点", "旁白视角秘密"]
+}
+```
+
+**报告指标：**
+
+```text
+retrieval_recall_at_5：标准证据是否被检索到
+grounded_score：回答是否被证据支撑
+character_score：是否像齐夏
+boundary_score：是否避免角色不该知道的信息
+hallucination_count：编造具体事实次数
+copy_rate：过度复述原文比例
+format_error_count：续写 user/assistant 等格式错误次数
+```
+
+**实现要求：**
+
+- 没有训练好模型时，也能只跑检索评测和教师样本评测。
+- 有模型回答时，报告同时记录 base、LoRA、不同 checkpoint 的分数。
+- 报告 Markdown 要包含失败样例，不能只给平均分。
+- 每个评测问题都要能追溯到 `expected_scene_ids` 或明确标记为无证据问题。
+
+**测试：**
+
+- 用假的检索结果和假的回答生成评测报告。
+- 验证 JSON 报告有各项分数。
+- 验证 Markdown 报告包含失败样例和类别统计。
+
+## 17. 任务 12：角色包导出
+
+**目标：** TaleTalk 最终产物不是散落的数据文件，而是一个可迁移的角色包。角色包可以被本项目运行时加载，也可以在另一台机器继续训练或推理。
+
+**导出目录：**
+
+```text
+dist/roles/shiri_qixia/
+```
+
+**目录结构：**
+
+```text
+manifest.json
+README.md
+profile.json
+memory/scenes.jsonl
+memory/bm25.json
+memory/embeddings.npy
+memory/embedding_meta.jsonl
+prompts/runtime_system.txt
+datasets/chat_train.json
+datasets/chat_valid.json
+eval/eval_questions.jsonl
+eval/eval_report.md
+```
+
+**manifest 结构：**
+
+```json
+{
+  "package_version": "1.0",
+  "run_name": "shiri_qixia",
+  "novel_title": "十日终焉",
+  "role": "齐夏",
+  "created_at": "2026-06-29T00:00:00Z",
+  "export_mode": "private_full",
+  "contains_raw_text": true,
+  "model_base": "Qwen/Qwen3.5-9B",
+  "adapter_path": "",
+  "files": {
+    "profile": "profile.json",
+    "scenes": "memory/scenes.jsonl",
+    "bm25": "memory/bm25.json",
+    "runtime_prompt": "prompts/runtime_system.txt"
+  }
+}
+```
+
+**导出模式：**
+
+```text
+private_full：本机/私有服务器使用，保留 raw_text，效果最好。
+public_redacted：公开分享使用，移除 raw_text，只保留 summary、events、relations、quotes 的可配置子集。
+```
+
+**实现要求：**
+
+- 默认 `private_full`，但必须在 manifest 里明确 `contains_raw_text`。
+- `public_redacted` 不能默认保留整段小说原文。
+- 导出后要能用 `runtime_agent` 从角色包目录加载，不依赖原始 repo 的 `data/` 路径。
+- 角色包是 TaleTalk 自己的运行和交付格式，不为了迁就外部格式牺牲内部协议清晰度。
+
+**测试：**
+
+- 构造最小 profile、memory、index、prompt，导出角色包。
+- 验证 manifest 文件齐全。
+- 验证 `public_redacted` 不包含 `raw_text`。
+- 验证运行时能从角色包目录加载 profile 和 memory。
+
+## 18. 任务 13：齐夏数据生成冒烟验证
 
 **目标：** 本地不训练，只验证数据生成链路。
 
@@ -561,6 +743,7 @@ python3 main.py -c configs/shiri_qixia.toml -r extract build_memory build_sft -o
 python3 -m pytest -q
 python3 scripts/validate_dataset.py data/shiri_qixia_chat_train.json
 python3 scripts/validate_dataset.py data/shiri_qixia_raft_train.json
+python3 main.py -c configs/shiri_qixia.toml -r eval export_role -o eval export_role
 ```
 
 不运行：
@@ -571,14 +754,17 @@ infer with loaded model
 ROCm training
 ```
 
-## 17. 阶段验收标准
+## 19. 阶段验收标准
 
 第一阶段完成标准：
 
 - 场景记忆来自原始小说文本，不只是台词。
 - 每条场景能看到 `raw_text`、`dialogues`、`characters`、`quotes`、`knowledge_level`。
+- 有场景构建报告，能看到对齐成功率和失败数量。
 - 至少生成 100 条教师模型回答 + 审核通过样本作为冒烟验证。
 - 训练数据系统提示词和运行时提示词使用同一个构造函数。
+- 至少生成一份检索/数据质量评测报告。
+- 至少能导出一个 `private_full` 角色包。
 - 本地测试通过。
 - 不运行训练。
 
@@ -587,9 +773,11 @@ ROCm training
 - 生成 1000-3000 条高质量齐夏训练样本。
 - 审核器通过率和拒绝原因有统计。
 - 有固定评测集，覆盖事实、关系、动机、错误前提、边界、不知道。
+- 有训练前后对比评测报告。
+- 角色包能在云端直接加载进行推理或继续训练。
 - 云端可直接训练 mixed 主训练集。
 
-## 18. 明确不做
+## 20. 明确不做
 
 本计划当前不做：
 
@@ -597,12 +785,14 @@ ROCm training
 - 不只基于原始对话生成最终记忆。
 - 不用单纯 BM25 作为最终检索。
 - 不在本地跑 ROCm 训练。
+- 不为了迁就外部格式牺牲 TaleTalk 自己的运行协议。
 - 不为了兼容旧实现保留错误的数据边界。
 
-## 19. 自检
+## 21. 自检
 
 - 架构已从台词记忆 v1 修正为完整场景记忆。
 - 数据生成已从“规则拼接”修正为教师模型生成 + 审核器过滤。
 - 检索已从只用 BM25 修正为 BM25 + 语义向量 + 重排模型 + 认知边界过滤。
 - 训练目标已明确：LoRA 学口吻和记忆使用协议，事实留在记忆库。
+- 已补充评测报告和角色包导出任务。
 - 计划全文使用中文。
