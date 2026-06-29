@@ -37,7 +37,28 @@ novel txt
 -> infer with Gradio
 ```
 
-The project also has a CLI entrypoint (`main.py`) and `config.toml`, so future architecture should extend the existing steps instead of replacing them.
+This pipeline is useful as a lifecycle shape, not as a constraint on the architecture.
+
+The first-principles lifecycle is:
+
+```text
+source material
+-> structured character memory
+-> training examples
+-> model adaptation
+-> runtime character simulation
+```
+
+The current `extract/build_sft/train/infer` names roughly map to that lifecycle, so keeping them can reduce migration cost. But their responsibilities must change if they conflict with the target design.
+
+In particular:
+
+- `extract` cannot remain "dialogue extraction only"; it must become story-to-memory extraction.
+- `build_sft` cannot remain "turn dialogue into ShareGPT only"; it must build memory-aware training examples.
+- `train` can remain a LoRA execution step as long as the dataset contract changes.
+- `infer` cannot remain "load LoRA and chat"; it must retrieve character memory before generation.
+
+The project also has a CLI entrypoint (`main.py`) and `config.toml`. These are delivery surfaces, not architectural anchors. They should be reused where they help, and rewritten where they hide the real design.
 
 Important existing assets:
 
@@ -46,7 +67,7 @@ Important existing assets:
 - `src/*` and `main.py` already define a step-based CLI.
 - `notebooks/01_extract.ipynb`, `02_train.ipynb`, and `03_infer.ipynb` remain useful for cloud workflows.
 
-This spec keeps the same high-level steps, but adds a memory layer between extraction and SFT construction, then uses the same memory protocol during inference.
+This spec keeps only the lifecycle boundaries. It replaces the dialogue-only data model with a memory-first data model, then uses the same memory protocol during training and inference.
 
 ## 3. Non-Goals
 
@@ -335,6 +356,18 @@ Runtime policy:
 This should be configurable later, but the default role-play mode should not be omniscient.
 
 ## 10. Pipeline Changes
+
+The target pipeline is not "old pipeline plus one extra step". It is the same user-facing lifecycle with different internal contracts:
+
+```text
+extract      = source material -> structured memories and role evidence
+build_memory = normalize, index, and validate memories
+build_sft    = memories + profile -> style and RAFT ShareGPT
+train        = LoRA over the new dataset contract
+infer        = retrieve memories -> assemble prompt -> generate as character
+```
+
+The implementation may keep command names for compatibility, but each command should be judged by whether it serves the memory-first architecture.
 
 ### 10.1 New Step: build_memory
 
