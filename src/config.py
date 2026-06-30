@@ -56,6 +56,7 @@ class Config:
     generation_checkpoint_dir: Path
     memory_backend: str
     retrieval_mode: str
+    training_retrieval_mode: str
     embedding_backend: str
     embedding_provider: str
     embedding_base_url: str
@@ -69,6 +70,7 @@ class Config:
     reranker_api_key: str
     reranker_model: str
     use_reranker: bool
+    training_use_reranker: bool
     top_k_memory: int
     bm25_top_k: int
     embedding_top_k: int
@@ -269,6 +271,7 @@ def load_config(config_path: str = "config.toml") -> Config:
         generation_checkpoint_dir=generation_checkpoint_dir,
         memory_backend=cfg.get("memory_backend", "bm25"),
         retrieval_mode=cfg.get("retrieval_mode", cfg.get("memory_backend", "bm25")),
+        training_retrieval_mode=cfg.get("training_retrieval_mode", "bm25"),
         embedding_backend=cfg.get("embedding_backend", "local"),
         embedding_provider=cfg.get("embedding_provider", "openai_compatible"),
         embedding_base_url=cfg.get("embedding_base_url", ""),
@@ -282,6 +285,7 @@ def load_config(config_path: str = "config.toml") -> Config:
         reranker_api_key=cfg.get("reranker_api_key", ""),
         reranker_model=cfg.get("reranker_model", "BAAI/bge-reranker-v2-m3"),
         use_reranker=cfg.get("use_reranker", False),
+        training_use_reranker=cfg.get("training_use_reranker", False),
         top_k_memory=cfg.get("top_k_memory", 3),
         bm25_top_k=cfg.get("bm25_top_k", 20),
         embedding_top_k=cfg.get("embedding_top_k", 20),

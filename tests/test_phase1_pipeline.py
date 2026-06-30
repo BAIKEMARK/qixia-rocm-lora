@@ -3,7 +3,10 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from src.config import load_config
+from src.build_sft import _build_phase_one_sft
+from src.memory import CharacterProfile, SceneMemory, write_profile, write_scene_memories
 from src.memory_pack import render_memory_pack
+from src.one_pass_generation import _load_completed
 from src.preprocess import build_scene_skeletons
 from src.semantic_retrieval import embed_texts, rerank_items
 
@@ -143,6 +146,226 @@ def test_cloud_embedding_and_reranker_clients(tmp_path, monkeypatch):
         thread.join(timeout=5)
 
 
+def test_real_ai_generation_ignores_heuristic_checkpoints(tmp_path, monkeypatch):
+    _write_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config("config.toml")
+    cfg.teacher_backend = "stepfun"
+    cfg.generation_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint = cfg.generation_checkpoint_dir / "batch_scene_000001.json"
+    checkpoint.write_text(
+        json.dumps(
+            {
+                "version": "taletalk-one-pass-v1",
+                "scene_memories": [
+                    {
+                        "scene_id": "scene_000001",
+                        "source_risks": ["heuristic_fallback"],
+                    }
+                ],
+                "candidate_samples": [
+                    {
+                        "sample_type": "grounded_fact",
+                        "question": "这一段里你经历了什么？",
+                        "answer": "先别急着下结论。",
+                        "source_scene_ids": ["scene_000001"],
+                        "risk_tags": ["heuristic_fallback"],
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    completed = _load_completed(cfg.generation_checkpoint_dir, allow_heuristic=False)
+
+    assert "scene_000001" not in completed
+
+
+def test_memory_aware_mixed_sft_includes_style_samples(tmp_path, monkeypatch):
+    _write_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config("config.toml")
+    cfg.sft_mode = "mixed"
+    cfg.style_data_ratio = 1.0
+    cfg.raft_data_ratio = 1.0
+
+    write_profile(
+        CharacterProfile(
+            role="齐夏",
+            aliases=["齐夏"],
+            novel_title="测试小说",
+            identity="测试身份",
+            core_goals=[],
+            personality=[],
+            speech_style=[],
+            relationships=[],
+            knowledge_boundary="只回答自己知道的事。",
+            answer_rules=[],
+        ),
+        cfg.profile_json,
+    )
+    write_scene_memories(
+        [
+            SceneMemory(
+                scene_id="scene_000001",
+                chunk_id=1,
+                chapter="第一章",
+                text="齐夏确认规则。",
+                summary="齐夏确认规则。",
+                characters=["齐夏", "乔家劲"],
+                target_role_present=True,
+                target_role_knows=True,
+                events=["齐夏确认规则"],
+                relations=[],
+                quotes=["先确认规则。"],
+                source={"novel_title": "测试小说"},
+                raw_text="齐夏确认规则。",
+                knowledge_level="first_hand",
+            )
+        ],
+        cfg.scene_memory_jsonl,
+    )
+    cfg.raw_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    cfg.raw_jsonl.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False)
+            for row in [
+                {"chunk_id": 1, "dialogue_index": 0, "role": "乔家劲", "dialogue": "怎么办？"},
+                {"chunk_id": 1, "dialogue_index": 1, "role": "齐夏", "dialogue": "先确认规则。"},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cfg.raft_candidates_raw_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    cfg.raft_candidates_raw_jsonl.write_text(
+        json.dumps(
+            {
+                "id": "cand_1",
+                "sample_type": "grounded_fact",
+                "question": "出口在哪里？",
+                "answer": "我先确认规则。",
+                "source_scene_ids": ["scene_000001"],
+                "knowledge_level": "first_hand",
+                "answer_policy": "answer_from_memory",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rows = _build_phase_one_sft(cfg)
+    sample_types = {row["metadata"]["sample_type"] for row in rows}
+
+    assert sample_types == {"grounded_fact", "style_dialogue"}
+
+
+def test_training_memory_pack_can_skip_reranker(tmp_path, monkeypatch):
+    _write_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cfg = load_config("config.toml")
+    cfg.sft_mode = "mixed"
+    cfg.use_reranker = True
+    cfg.training_use_reranker = False
+    _write_minimal_memory_sft_inputs(cfg)
+
+    def fail_rerank(*args, **kwargs):
+        raise AssertionError("training build should not call reranker")
+
+    monkeypatch.setattr("src.build_sft.rerank_items", fail_rerank)
+
+    rows = _build_phase_one_sft(cfg)
+
+    assert rows
+
+
+def _write_minimal_memory_sft_inputs(cfg):
+    write_profile(
+        CharacterProfile(
+            role="齐夏",
+            aliases=["齐夏"],
+            novel_title="测试小说",
+            identity="测试身份",
+            core_goals=[],
+            personality=[],
+            speech_style=[],
+            relationships=[],
+            knowledge_boundary="只回答自己知道的事。",
+            answer_rules=[],
+        ),
+        cfg.profile_json,
+    )
+    write_scene_memories(
+        [
+            SceneMemory(
+                scene_id="scene_000001",
+                chunk_id=1,
+                chapter="第一章",
+                text="齐夏确认规则。",
+                summary="齐夏确认规则。",
+                characters=["齐夏", "乔家劲"],
+                target_role_present=True,
+                target_role_knows=True,
+                events=["齐夏确认规则"],
+                relations=[],
+                quotes=["先确认规则。"],
+                source={"novel_title": "测试小说"},
+                raw_text="齐夏确认规则。",
+                knowledge_level="first_hand",
+            ),
+            SceneMemory(
+                scene_id="scene_000002",
+                chunk_id=2,
+                chapter="第一章",
+                text="齐夏观察出口。",
+                summary="齐夏观察出口。",
+                characters=["齐夏"],
+                target_role_present=True,
+                target_role_knows=True,
+                events=["齐夏观察出口"],
+                relations=[],
+                quotes=[],
+                source={"novel_title": "测试小说"},
+                raw_text="齐夏观察出口。",
+                knowledge_level="first_hand",
+            ),
+        ],
+        cfg.scene_memory_jsonl,
+    )
+    cfg.raw_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    cfg.raw_jsonl.write_text(
+        "\n".join(
+            json.dumps(row, ensure_ascii=False)
+            for row in [
+                {"chunk_id": 1, "dialogue_index": 0, "role": "乔家劲", "dialogue": "怎么办？"},
+                {"chunk_id": 1, "dialogue_index": 1, "role": "齐夏", "dialogue": "先确认规则。"},
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    cfg.raft_candidates_raw_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    cfg.raft_candidates_raw_jsonl.write_text(
+        json.dumps(
+            {
+                "id": "cand_1",
+                "sample_type": "grounded_fact",
+                "question": "你当时做了什么？",
+                "answer": "我先确认规则。",
+                "source_scene_ids": ["scene_000001"],
+                "knowledge_level": "first_hand",
+                "answer_policy": "answer_from_memory",
+            },
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _write_project(root):
     (root / "src").mkdir()
     (root / "extract").mkdir()
@@ -184,6 +407,7 @@ teacher_batch_size = 2
 teacher_concurrency = 1
 memory_backend = "bm25"
 retrieval_mode = "bm25"
+training_retrieval_mode = "bm25"
 embedding_backend = "local"
 embedding_provider = "openai_compatible"
 embedding_base_url = ""

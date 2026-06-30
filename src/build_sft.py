@@ -264,21 +264,25 @@ def _build_phase_one_sft(config: Config) -> list[dict]:
     scenes = read_scene_memories(config.scene_memory_jsonl)
     candidates = _filter_candidates(_load_jsonl(config.raft_candidates_raw_jsonl))
     index = BM25MemoryIndex.from_scenes(scenes)
+    training_retrieval_mode = config.training_retrieval_mode
     semantic_index = None
-    if config.retrieval_mode in {"embedding", "semantic", "hybrid"} and config.embedding_npy.exists():
+    if training_retrieval_mode in {"embedding", "semantic", "hybrid"} and config.embedding_npy.exists():
         semantic_index = SemanticMemoryIndex.from_artifacts(scenes, config.embedding_npy, config)
+    rerank_fn = None
+    if config.training_use_reranker:
+        rerank_fn = lambda query, items, top_k: rerank_items(config, query, items, top_k)
     packs = build_memory_packs(
         candidates,
         scenes,
         index,
         max_one_scene_chars=config.max_one_scene_chars,
         include_distractors=config.raft_include_distractors,
-        retrieval_mode=config.retrieval_mode,
+        retrieval_mode=training_retrieval_mode,
         bm25_top_k=config.bm25_top_k,
         embedding_top_k=config.embedding_top_k,
         rerank_top_k=config.rerank_top_k,
         semantic_index=semantic_index,
-        rerank_fn=lambda query, items, top_k: rerank_items(config, query, items, top_k),
+        rerank_fn=rerank_fn,
     )
     write_memory_packs(packs, config.raft_memory_packs_jsonl)
     packs_by_question = {pack["question_id"]: pack for pack in packs}
@@ -308,7 +312,46 @@ def _build_phase_one_sft(config: Config) -> list[dict]:
                 },
             }
         )
+    if config.sft_mode == "mixed":
+        style_rows = _build_style_samples_from_raw_dialogue(config)
+        rows = _select_ratio(style_rows, config.style_data_ratio, config.seed) + _select_ratio(
+            rows,
+            config.raft_data_ratio,
+            config.seed + 1,
+        )
+    elif config.sft_mode == "style":
+        rows = _build_style_samples_from_raw_dialogue(config)
     return rows
+
+
+def _build_style_samples_from_raw_dialogue(config: Config) -> list[dict]:
+    if not config.raw_jsonl.exists():
+        return []
+    raw_rows = _load_jsonl(config.raw_jsonl)
+    buckets = _group_by_chunk(raw_rows)
+    target_roles = set(config.target_role_aliases)
+    samples: list[dict] = []
+    for chunk_id in sorted(buckets):
+        conversation = _build_conversation(buckets[chunk_id], target_roles)
+        if conversation is None:
+            continue
+        samples.append(
+            {
+                "id": f"{config.run_name}_style_{chunk_id:06d}",
+                "system": (
+                    f"你正在扮演《{config.novel_title}》中的{config.canonical_role}。"
+                    f"保持{config.canonical_role}的语气、判断方式和说话节奏；"
+                    "只回应当前对话，不要续写其他角色。"
+                ),
+                "conversations": conversation,
+                "metadata": {
+                    "sample_type": "style_dialogue",
+                    "source_chunk_id": chunk_id,
+                    "generation_mode": "raw_dialogue",
+                },
+            }
+        )
+    return samples
 
 
 def _filter_candidates(candidates: list[dict]) -> list[dict]:

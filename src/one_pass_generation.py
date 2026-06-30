@@ -25,7 +25,7 @@ def run_one_pass_generation(
     config: Config,
     scenes: list[SceneSkeleton],
 ) -> tuple[list[SceneMemory], list[dict[str, Any]], list[dict[str, Any]]]:
-    completed = _load_completed(config.generation_checkpoint_dir)
+    completed = _load_completed(config.generation_checkpoint_dir, allow_heuristic=_uses_heuristic_generation(config))
     scene_memories: list[SceneMemory] = []
     profile_observations: list[dict[str, Any]] = []
     candidate_samples: list[dict[str, Any]] = []
@@ -372,13 +372,30 @@ def _extract_prompt(path: Path) -> str:
     return match.group(1).strip() if match else text.strip()
 
 
-def _load_completed(checkpoint_dir: Path) -> dict[str, dict[str, Any]]:
+def _uses_heuristic_generation(config: Config) -> bool:
+    return config.teacher_backend in {"mock", "rule", "heuristic"}
+
+
+def _load_completed(checkpoint_dir: Path, allow_heuristic: bool = True) -> dict[str, dict[str, Any]]:
     completed: dict[str, dict[str, Any]] = {}
     if not checkpoint_dir.exists():
         return completed
     for path in checkpoint_dir.glob("batch_*.json"):
-        completed[path.stem.removeprefix("batch_")] = json.loads(path.read_text(encoding="utf-8"))
+        result = json.loads(path.read_text(encoding="utf-8"))
+        if not allow_heuristic and _is_heuristic_checkpoint(result):
+            continue
+        completed[path.stem.removeprefix("batch_")] = result
     return completed
+
+
+def _is_heuristic_checkpoint(result: dict[str, Any]) -> bool:
+    for memory in result.get("scene_memories", []):
+        if "heuristic_fallback" in _string_list(memory.get("source_risks")):
+            return True
+    for candidate in result.get("candidate_samples", []):
+        if "heuristic_fallback" in _string_list(candidate.get("risk_tags")):
+            return True
+    return False
 
 
 def _write_checkpoint(checkpoint_dir: Path, batch_key: str, result: dict[str, Any]) -> None:
