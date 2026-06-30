@@ -4,11 +4,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from src.config import load_config
 from src.build_sft import _build_phase_one_sft
-from src.memory import CharacterProfile, SceneMemory, write_profile, write_scene_memories
+from src.memory import CharacterProfile, SceneMemory, read_scene_memories, write_profile, write_scene_memories
 from src.memory_pack import render_memory_pack
 from src.one_pass_generation import _load_completed
 from src.preprocess import build_scene_skeletons
-from src.semantic_retrieval import embed_texts, rerank_items
+from src.semantic_retrieval import embed_texts, rerank_items, write_embedding_artifacts
 
 
 def test_preprocess_scenes_keep_offsets(tmp_path):
@@ -268,13 +268,31 @@ def test_training_memory_pack_can_skip_reranker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = load_config("config.toml")
     cfg.sft_mode = "mixed"
+    cfg.retrieval_mode = "hybrid"
+    cfg.training_retrieval_mode = "bm25"
+    cfg.embedding_backend = "cloud"
+    cfg.embedding_base_url = "https://example.invalid/v1"
+    cfg.embedding_api_key = "test-key"
+    cfg.embedding_model = "test-embedding"
     cfg.use_reranker = True
+    cfg.reranker_backend = "cloud"
+    cfg.reranker_base_url = "https://example.invalid/v1"
+    cfg.reranker_api_key = "test-key"
+    cfg.reranker_model = "test-reranker"
     cfg.training_use_reranker = False
     _write_minimal_memory_sft_inputs(cfg)
+
+    cfg.embedding_backend = "local"
+    write_embedding_artifacts(cfg, read_scene_memories(cfg.scene_memory_jsonl))
+    cfg.embedding_backend = "cloud"
+
+    def fail_embedding(*args, **kwargs):
+        raise AssertionError("training build should not call cloud embedding per query")
 
     def fail_rerank(*args, **kwargs):
         raise AssertionError("training build should not call reranker")
 
+    monkeypatch.setattr("src.semantic_retrieval.embed_texts", fail_embedding)
     monkeypatch.setattr("src.build_sft.rerank_items", fail_rerank)
 
     rows = _build_phase_one_sft(cfg)
@@ -353,7 +371,7 @@ def _write_minimal_memory_sft_inputs(cfg):
             {
                 "id": "cand_1",
                 "sample_type": "grounded_fact",
-                "question": "你当时做了什么？",
+                "question": "出口在哪里？",
                 "answer": "我先确认规则。",
                 "source_scene_ids": ["scene_000001"],
                 "knowledge_level": "first_hand",
