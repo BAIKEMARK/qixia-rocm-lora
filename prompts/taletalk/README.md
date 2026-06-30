@@ -38,7 +38,7 @@ python3 scripts/prompt_lab_stepfun.py --dry-run
 python3 scripts/prompt_lab_stepfun.py --cases qixia,yuniannian --repair --review
 ```
 
-脚本会读取当前环境变量，或尝试读取相邻旧目录的 `.env.stepfun`。
+脚本会读取当前环境变量，优先读取仓库根目录 `.env`；相邻旧目录的 `.env.stepfun` 只作为兼容 fallback。
 
 ## 约束策略
 

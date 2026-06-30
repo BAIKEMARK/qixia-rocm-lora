@@ -28,6 +28,8 @@ DATA_PATH = REPO_DIR / "data" / "qixia_train.json"
 OUTPUT_PATH = REPO_DIR / "data" / "qixia_chat_train_full.json"
 CHECKPOINT_PATH = REPO_DIR / "data" / "_chat_conversion_full_progress.json"
 _candidates = [
+    REPO_DIR / ".env",
+    REPO_DIR.parent / "extract-dialogue" / ".env",
     REPO_DIR.parent / "extract-dialogue" / ".env.stepfun",
     REPO_DIR / "extract-dialogue" / ".env.stepfun",
 ]
@@ -52,9 +54,9 @@ def load_env_file(path):
 
 
 env = load_env_file(ENV_PATH)
-API_KEY = os.environ.get("STEPFUN_API_KEY") or env.get("CUSTOM_API_KEY")
-BASE_URL = os.environ.get("STEPFUN_BASE_URL") or env.get("CUSTOM_BASE_URL") or "https://api.stepfun.com/v1"
-MODEL = os.environ.get("STEPFUN_MODEL") or env.get("CUSTOM_MODEL_NAME") or "step-1.5-flash"
+API_KEY = os.environ.get("STEPFUN_API_KEY") or os.environ.get("CUSTOM_API_KEY") or env.get("STEPFUN_API_KEY") or env.get("CUSTOM_API_KEY")
+BASE_URL = os.environ.get("STEPFUN_BASE_URL") or os.environ.get("CUSTOM_BASE_URL") or env.get("STEPFUN_BASE_URL") or env.get("CUSTOM_BASE_URL") or "https://api.stepfun.com/v1"
+MODEL = os.environ.get("STEPFUN_MODEL") or os.environ.get("STEPFUN_MODEL_NAME") or os.environ.get("CUSTOM_MODEL_NAME") or env.get("STEPFUN_MODEL") or env.get("STEPFUN_MODEL_NAME") or env.get("CUSTOM_MODEL_NAME") or "step-1.5-flash"
 
 if not API_KEY:
     print(f"ERROR: 没找到 API key。检查 {ENV_PATH}", file=sys.stderr)

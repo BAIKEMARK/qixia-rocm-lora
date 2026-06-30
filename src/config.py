@@ -7,6 +7,7 @@ except ModuleNotFoundError:  # Python < 3.11
 from pathlib import Path
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+from .env import load_repo_env
 
 @dataclass
 class Config:
@@ -153,6 +154,7 @@ def load_config(config_path: str = "config.toml") -> Config:
     repo_dir = Path.cwd().resolve()
     while repo_dir != repo_dir.parent and not (repo_dir / "extract").is_dir() and not (repo_dir / "src").is_dir():
         repo_dir = repo_dir.parent
+    load_repo_env(repo_dir)
     
     novel_txt = Path(cfg["novel_txt"])
     if not novel_txt.is_absolute():

@@ -211,7 +211,7 @@ def _embedding_api_key(config: Config) -> str:
 
 
 def _embedding_model(config: Config) -> str:
-    return config.embedding_model or os.getenv("EMBEDDING_MODEL", "")
+    return config.embedding_model or os.getenv("EMBEDDING_MODEL", "") or os.getenv("EMBEDDING_MODEL_NAME", "")
 
 
 def _reranker_base_url(config: Config) -> str:
@@ -223,7 +223,7 @@ def _reranker_api_key(config: Config) -> str:
 
 
 def _reranker_model(config: Config) -> str:
-    return config.reranker_model or os.getenv("RERANKER_MODEL", "")
+    return config.reranker_model or os.getenv("RERANKER_MODEL", "") or os.getenv("RERANKER_MODEL_NAME", "")
 
 
 def _write_embedding_meta(config: Config, scenes: list[SceneMemory], provider: str, dimensions: int) -> None:

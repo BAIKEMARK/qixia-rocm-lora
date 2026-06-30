@@ -307,7 +307,7 @@ python3 main.py -c configs/shiri_qixia.toml -r build_memory build_sft -o build_m
 
 ```bash
 set -a
-source .env.stepfun
+source .env
 set +a
 
 python3 main.py -c configs/shiri_qixia.toml -r extract build_memory build_sft -o extract build_memory build_sft

@@ -140,11 +140,11 @@ data/raw/shiri_qixia_dialogues.jsonl
 extraction_backend = "cloud_api"
 ```
 
-2. 再加载 `.env.stepfun` 并执行：
+2. 再加载仓库根目录 `.env` 并执行：
 
 ```bash
 set -a
-source .env.stepfun
+source .env
 set +a
 
 python3 main.py -c configs/shiri_qixia.toml -r extract build_memory build_sft -o extract build_memory build_sft
@@ -152,7 +152,7 @@ python3 main.py -c configs/shiri_qixia.toml -r extract build_memory build_sft -o
 
 注意：
 
-- `.env.stepfun` 不提交到 Git。
+- `.env` 不提交到 Git；旧的 `.env.stepfun` 只作为兼容文件，不再推荐新建。
 - 这条命令会花 API 钱。
 - 如果已有 raw dialogue，不要重复跑 extract。
 - 如果 `extraction_backend` 还是 `local_model`，程序会尝试启动本地 vLLM，而不是 StepFun。

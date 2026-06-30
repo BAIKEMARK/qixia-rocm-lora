@@ -27,7 +27,9 @@ REPO_DIR = Path(__file__).resolve().parents[1]
 PROMPT_DIR = REPO_DIR / "prompts" / "taletalk"
 NOVEL_PATH = REPO_DIR / "novels" / "《十日终焉》（校对全本）.txt"
 ENV_CANDIDATES = [
+    REPO_DIR / ".env",
     REPO_DIR / ".env.stepfun",
+    REPO_DIR.parent / "extract-dialogue" / ".env",
     REPO_DIR.parent / "extract-dialogue" / ".env.stepfun",
     REPO_DIR / "extract-dialogue" / ".env.stepfun",
 ]
@@ -58,8 +60,10 @@ def load_stepfun_env() -> tuple[str, str, str, Path | None]:
     )
     model = (
         os.environ.get("STEPFUN_MODEL")
+        or os.environ.get("STEPFUN_MODEL_NAME")
         or os.environ.get("CUSTOM_MODEL_NAME")
         or file_env.get("CUSTOM_MODEL_NAME")
+        or file_env.get("STEPFUN_MODEL_NAME")
         or "step-3.7-flash"
     )
     if not api_key:

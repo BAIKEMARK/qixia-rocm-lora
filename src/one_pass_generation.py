@@ -106,7 +106,8 @@ def _call_chat_completion(base_url: str, api_key: str, model: str, prompt: str, 
 
 def _api_key(config: Config) -> str:
     return (
-        config.custom_api_key
+        os.getenv("TEACHER_API_KEY", "")
+        or config.custom_api_key
         or os.getenv("CUSTOM_API_KEY", "")
         or os.getenv("STEPFUN_API_KEY", "")
         or os.getenv("OPENAI_API_KEY", "")
@@ -115,7 +116,8 @@ def _api_key(config: Config) -> str:
 
 def _base_url(config: Config) -> str:
     return (
-        config.custom_base_url
+        os.getenv("TEACHER_BASE_URL", "")
+        or config.custom_base_url
         or os.getenv("CUSTOM_BASE_URL", "")
         or os.getenv("STEPFUN_BASE_URL", "")
         or os.getenv("OPENAI_BASE_URL", "")
@@ -124,11 +126,14 @@ def _base_url(config: Config) -> str:
 
 def _model_name(config: Config) -> str:
     return (
-        config.teacher_model
+        os.getenv("TEACHER_MODEL_NAME", "")
+        or config.teacher_model
         or config.custom_model_name
         or os.getenv("CUSTOM_MODEL_NAME", "")
         or os.getenv("STEPFUN_MODEL", "")
+        or os.getenv("STEPFUN_MODEL_NAME", "")
         or os.getenv("OPENAI_MODEL", "")
+        or os.getenv("OPENAI_MODEL_NAME", "")
     )
 
 
